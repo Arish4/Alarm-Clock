@@ -71,6 +71,23 @@ class EventReader(Protocol):
     def recent(self, limit: int) -> list[AlarmEvent]: ...
 
 
+@runtime_checkable
+class Console(Protocol):
+    """A terminal abstraction for the interactive features.
+
+    ``read_key`` is non-blocking (returns ``None`` when no key is waiting) so
+    live screens can redraw on a timer; ``read_line`` blocks for a full line.
+    """
+
+    def clear(self) -> None: ...
+
+    def write_line(self, text: str = "") -> None: ...
+
+    def read_line(self, prompt: str = "") -> str: ...
+
+    def read_key(self) -> str | None: ...
+
+
 class Decision(str, Enum):
     SNOOZE = "snooze"
     DISMISS = "dismiss"

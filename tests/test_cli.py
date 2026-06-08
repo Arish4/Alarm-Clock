@@ -17,6 +17,7 @@ from alarmclock.application.services import AlarmService
 from alarmclock.cli.app import main
 from alarmclock.cli.context import AppContext
 from alarmclock.infrastructure.clock import FakeClock
+from alarmclock.infrastructure.console import ScriptedConsole
 from alarmclock.infrastructure.event_log import InMemoryEventSink
 from alarmclock.infrastructure.json_repository import JsonAlarmRepository
 from alarmclock.infrastructure.responder import ScriptedResponder
@@ -114,6 +115,22 @@ def test_history_command(ctx):
     ctx._out.seek(0)
     assert run(["history"], ctx) == 0
     assert "rang" in ctx._out.getvalue()
+
+
+def test_run_opens_interactive_menu(ctx):
+    console = ScriptedConsole(lines=[""])  # immediately quit the menu
+    ctx.make_console = lambda: console
+    assert run(["run"], ctx) == 0
+    assert "  alarmclock" in console.output
+    assert "Clock" in console.text and "Stopwatch" in console.text
+    assert "Timer" in console.text and "Alarm" in console.text
+
+
+def test_bare_invocation_opens_menu(ctx):
+    console = ScriptedConsole(lines=[""])
+    ctx.make_console = lambda: console
+    assert run([], ctx) == 0
+    assert "bye!" in console.text
 
 
 def test_invalid_time_returns_validation_error(ctx, capsys):

@@ -2,9 +2,31 @@
 
 A small, **SOLID**, **stdlib-only** command-line alarm clock.
 
-Set alarms (one-off, daily, weekdays, weekends or specific days), tag and edit
-them, see when each next fires, and run a watch loop that rings — with snooze
-limits and a recorded event history.
+Run it with no arguments (or `alarmclock run`) to open a **full-screen
+interactive terminal menu** — a live **Clock**, a **Stopwatch**, a countdown
+**Timer**, and the **Alarm** manager. Or drive everything from one-shot
+subcommands: set alarms (one-off, daily, weekdays, weekends or specific days),
+tag and edit them, see when each next fires, and watch a loop that rings — with
+snooze limits and a recorded event history.
+
+```
+$ alarmclock            # (or: alarmclock run)
+  alarmclock
+  ==========
+
+    1. Clock
+    2. Stopwatch
+    3. Timer
+    4. Alarm
+
+    q. quit
+
+  choose:
+```
+
+Pick a number and that feature takes over the screen (live-updating, `q` to go
+back). The Timer beeps when it reaches zero; the Stopwatch supports
+pause/lap/reset.
 
 ```
 $ alarmclock add 8:30am --label "Wake up" --repeat weekdays --tag morning
@@ -30,6 +52,14 @@ alarmclock running (now 08:29). press Ctrl-C to stop.
 
 ## Features
 
+- **Interactive menu** — `alarmclock` (or `alarmclock run`) opens a terminal
+  menu with four live screens:
+  - **Clock** — current time and date, updating every tick.
+  - **Stopwatch** — count up with `[space]` start/pause, `[l]` lap, `[r]` reset.
+  - **Timer** — enter a duration (`30s`, `5m`, `1h30m`, `10:00`); counts down
+    and beeps at zero, with `[space]` pause/resume.
+  - **Alarm** — view alarms with their next fire time, add/delete, or start the
+    watch loop.
 - **Flexible times** — `HH:MM` (24h) or `8:30am` / `2:00pm` (12h).
 - **Repeat policies** — `once`, `daily`, `weekdays`, `weekends`, or specific
   days like `mon,wed,fri`.
@@ -64,6 +94,7 @@ python -m alarmclock list
 
 | Command | What it does |
 | --- | --- |
+| `run` (or no command) | Open the interactive menu (Clock / Stopwatch / Timer / Alarm). |
 | `add TIME [--label L] [--repeat R] [--tag t1,t2]` | Add an alarm. `R` = `once`/`daily`/`weekdays`/`weekends`/`mon,fri`. |
 | `list [--tag T] [--json]` | List alarms (optionally filtered / as JSON). |
 | `next [--json]` | Show each alarm's next fire time. |
@@ -71,7 +102,7 @@ python -m alarmclock list
 | `enable ID` / `disable ID` | Arm or disarm one alarm. |
 | `enable-all` / `disable-all` | Toggle every alarm. |
 | `delete ID` | Remove an alarm. |
-| `run [--snooze-minutes N] [--max-snoozes M] [--sound B] [--no-sound]` | Blocking watch loop. |
+| `watch [--snooze-minutes N] [--max-snoozes M] [--sound B] [--no-sound]` | Blocking alarm watch loop (no menu). |
 | `history [--limit N]` | Show recent ring/snooze/dismiss events. |
 
 Alarms live at `~/.alarmclock/alarms.json` and history at
@@ -91,13 +122,16 @@ cli/            argument parsing, command dispatch, composition root
   presenter.py    output formatting (tables / JSON)
 application/     use cases + orchestration, depends only on abstractions
   interfaces.py   ports: Clock, AlarmRepository, Ringer, SoundPlayer,
-                  Notifier, EventSink, EventReader, Responder
+                  Notifier, EventSink, EventReader, Responder, Console
   scheduler.py    pure due-logic + next-occurrence (no clock/sleep/IO)
   services.py     AlarmService use cases (add/list/edit/delete/toggle)
-  runner.py       the run loop (the only place that really sleeps)
+  runner.py       the alarm watch loop (sleeps via the Clock port)
+  features.py     interactive screens: Clock / Stopwatch / Timer / Alarm
+  menu.py         InteractiveMenu — lists and dispatches to features
 infrastructure/  concrete adapters implementing the ports
   json_repository.py  atomic JSON storage + corrupt-file recovery
   clock.py            SystemClock / FakeClock
+  console.py          TerminalConsole (live keys) / ScriptedConsole (tests)
   sound.py            SoundPlayer strategies + factory
   ringer.py           ConsoleRinger (Notifier + SoundPlayer) / RecordingRinger
   event_log.py        Jsonl / InMemory / Null event sinks
@@ -106,6 +140,9 @@ domain/          pure entities and rules, zero I/O
   alarm.py        Alarm entity (snooze/dismiss behaviour lives here)
   repeat.py       RepeatPolicy strategy hierarchy + registry
   time_of_day.py  TimeOfDay value object (parsing/validation)
+  duration.py     duration parsing + HH:MM:SS / tenths formatting
+  stopwatch.py    pure Stopwatch model (elapsed is a function of 'now')
+  timer.py        pure Countdown model
   events.py       AlarmEvent / EventKind
   errors.py       domain exceptions
 ```
@@ -128,7 +165,14 @@ How each SOLID principle shows up:
   (`EventReader`) are separate. Nothing depends on methods it doesn't use.
 - **Dependency Inversion** — the application layer depends only on abstractions
   in `interfaces.py`. Concrete infrastructure is wired in exactly one place,
-  the composition root (`cli/context.py`), and injected everywhere else.
+  the composition root (`cli/context.py`), and injected everywhere else. The
+  interactive features take a `Console` port, so the whole TUI is tested with a
+  `ScriptedConsole` and `FakeClock` — no real terminal or sleeping required.
+
+The interactive menu reuses the same principles: each screen is a `Feature`
+subclass (Clock, Stopwatch, Timer, Alarm), the `InteractiveMenu` lists and
+dispatches to them without knowing what they are, and a new screen is one new
+class — the menu never changes.
 
 ### Firing logic
 
@@ -156,15 +200,17 @@ state**. Because every boundary is an injected port, tests use a `FakeClock`,
 repository.
 
 ```bash
-python -m pytest        # 89 tests
+python -m pytest        # 126 tests
 ```
 
-Coverage spans every layer: time parsing (12h/24h), repeat strategies and the
-registry, the `Alarm` entity's snooze/dismiss behaviour, the scheduler's
-due-logic and next-occurrence, the `AlarmService` use cases, the run loop
-(single ring per minute, snooze re-arm, max-snooze auto-dismiss), atomic
-storage with corrupt-file recovery, the event log, the sound factory, the
-banner's encoding fallback, and the CLI end-to-end through an injected context.
+Coverage spans every layer: time parsing (12h/24h), duration parsing and
+formatting, repeat strategies and the registry, the `Alarm`/`Stopwatch`/
+`Countdown` models, the scheduler's due-logic and next-occurrence, the
+`AlarmService` use cases, the alarm watch loop (single ring per minute, snooze
+re-arm, max-snooze auto-dismiss), the interactive features and menu (driven by a
+`ScriptedConsole`), atomic storage with corrupt-file recovery, the event log,
+the sound factory, the banner's encoding fallback, and the CLI end-to-end
+through an injected context.
 
 ## License
 

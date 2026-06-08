@@ -27,12 +27,27 @@ def build_parser(commands: Sequence[Command]) -> argparse.ArgumentParser:
     parser.add_argument(
         "--history", metavar="PATH", help="path to the event history file"
     )
-    sub = parser.add_subparsers(dest="command", required=True)
+    sub = parser.add_subparsers(dest="command")
     for command in commands:
         sub_parser = sub.add_parser(command.name, help=command.help)
         command.configure(sub_parser)
         sub_parser.set_defaults(_handler=command)
     return parser
+
+
+def _default_run_args(args: argparse.Namespace) -> argparse.Namespace:
+    """Fill in defaults so a bare ``alarmclock`` opens the interactive menu."""
+    from .commands import RunCommand
+
+    args._handler = RunCommand()
+    for key, value in {
+        "snooze_minutes": 9,
+        "max_snoozes": None,
+        "sound": "auto",
+        "no_sound": False,
+    }.items():
+        setattr(args, key, value)
+    return args
 
 
 def main(
@@ -48,6 +63,9 @@ def main(
         config_path=getattr(args, "config", None),
         history_path=getattr(args, "history", None),
     )
+
+    if getattr(args, "command", None) is None:
+        args = _default_run_args(args)
 
     handler: Command = args._handler
     try:

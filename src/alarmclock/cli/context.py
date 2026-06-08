@@ -11,18 +11,27 @@ import sys
 from dataclasses import dataclass
 from typing import Callable, TextIO
 
+from ..application.features import (
+    AlarmFeature,
+    ClockFeature,
+    StopwatchFeature,
+    TimerFeature,
+)
 from ..application.interfaces import (
     AlarmRepository,
     Clock,
+    Console,
     EventReader,
     EventSink,
     Responder,
     Ringer,
 )
+from ..application.menu import InteractiveMenu
 from ..application.runner import AlarmRunner
 from ..application.scheduler import Scheduler
 from ..application.services import AlarmService
 from ..infrastructure.clock import SystemClock
+from ..infrastructure.console import TerminalConsole
 from ..infrastructure.event_log import JsonlEventSink
 from ..infrastructure.json_repository import JsonAlarmRepository
 from ..infrastructure.responder import ConsoleResponder
@@ -43,6 +52,7 @@ class AppContext:
     out: TextIO
     make_ringer: Callable[[str], Ringer]
     make_responder: Callable[[], Responder]
+    make_console: Callable[[], Console] | None = None
 
     def build_runner(
         self,
@@ -61,6 +71,36 @@ class AppContext:
             snooze_minutes=snooze_minutes,
             max_snoozes=max_snoozes,
         )
+
+    def build_menu(
+        self,
+        *,
+        sound: str,
+        snooze_minutes: int,
+        max_snoozes: int | None,
+    ) -> InteractiveMenu:
+        """Assemble the interactive menu and its features (Clock/Stopwatch/
+        Timer/Alarm), injecting the right ports into each."""
+        timer_sound = create_sound_player(sound)
+
+        def runner_factory() -> AlarmRunner:
+            return self.build_runner(
+                sound=sound,
+                snooze_minutes=snooze_minutes,
+                max_snoozes=max_snoozes,
+            )
+
+        features = [
+            ClockFeature(self.clock),
+            StopwatchFeature(self.clock),
+            TimerFeature(self.clock, timer_sound),
+            AlarmFeature(self.service, self.scheduler, self.clock, runner_factory),
+        ]
+        return InteractiveMenu(features)
+
+    def console(self) -> Console:
+        factory = self.make_console or TerminalConsole
+        return factory()
 
 
 def build_context(
@@ -89,4 +129,5 @@ def build_context(
         out=out,
         make_ringer=make_ringer,
         make_responder=ConsoleResponder,
+        make_console=TerminalConsole,
     )

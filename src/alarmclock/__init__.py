@@ -8,4 +8,4 @@ Layers (each depends only on the ones beneath it):
     domain         -> pure entities and business rules (no I/O)
 """
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"

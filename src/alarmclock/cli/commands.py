@@ -217,11 +217,11 @@ class HistoryCommand(Command):
 
 class RunCommand(Command):
     name = "run"
-    help = "watch and ring alarms (blocking)"
+    help = "open the interactive menu (clock / stopwatch / timer / alarm)"
 
     def configure(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument(
-            "--snooze-minutes", type=int, default=9, help="snooze duration"
+            "--snooze-minutes", type=int, default=9, help="alarm snooze duration"
         )
         parser.add_argument(
             "--max-snoozes",
@@ -235,8 +235,32 @@ class RunCommand(Command):
             help="sound backend: auto | none | bell | beep",
         )
         parser.add_argument(
-            "--no-sound", action="store_true", help="visual banner only"
+            "--no-sound", action="store_true", help="visual only, no sound"
         )
+
+    def execute(self, args: argparse.Namespace, ctx: AppContext) -> int:
+        sound = "none" if args.no_sound else args.sound
+        menu = ctx.build_menu(
+            sound=sound,
+            snooze_minutes=args.snooze_minutes,
+            max_snoozes=args.max_snoozes,
+        )
+        try:
+            menu.run(ctx.console())
+        except KeyboardInterrupt:
+            self._print(ctx, "\nstopped.")
+        return 0
+
+
+class WatchCommand(Command):
+    name = "watch"
+    help = "directly watch and ring alarms (blocking, no menu)"
+
+    def configure(self, parser: argparse.ArgumentParser) -> None:
+        parser.add_argument("--snooze-minutes", type=int, default=9)
+        parser.add_argument("--max-snoozes", type=int, default=None)
+        parser.add_argument("--sound", default="auto")
+        parser.add_argument("--no-sound", action="store_true")
 
     def execute(self, args: argparse.Namespace, ctx: AppContext) -> int:
         sound = "none" if args.no_sound else args.sound
@@ -246,7 +270,7 @@ class RunCommand(Command):
             max_snoozes=args.max_snoozes,
         )
         now = ctx.clock.now().strftime("%H:%M")
-        self._print(ctx, f"alarmclock running (now {now}). press Ctrl-C to stop.")
+        self._print(ctx, f"alarmclock watching (now {now}). press Ctrl-C to stop.")
         try:
             runner.run()
         except KeyboardInterrupt:
@@ -268,4 +292,5 @@ def default_commands() -> list[Command]:
         DeleteCommand(),
         HistoryCommand(),
         RunCommand(),
+        WatchCommand(),
     ]
